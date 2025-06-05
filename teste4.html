@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat com Aluno (OpenRouter API)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        #chatMessages::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chatMessages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        #chatMessages::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        #chatMessages::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4F46E5; /* Indigo color for OpenRouter */
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .api-key-input {
+            background-color: #4A5568; /* Darker background for API key field */
+            color: white;
+            padding: 2px 4px;
+            border-radius: 4px;
+            font-size: 0.75rem; /* text-xs */
+            width: 280px; /* Adjust as needed */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div class="w-full max-w-2xl bg-white shadow-xl rounded-lg flex flex-col h-[90vh]">
+        <!-- Cabeçalho -->
+        <header class="bg-indigo-600 text-white p-4 rounded-t-lg">
+            <h1 class="text-xl font-semibold text-center">Chat Educacional (OpenRouter API)</h1>
+            <div class="text-xs text-center mt-2 space-y-1">
+                <div>
+                    API Key OpenRouter: <input type="password" id="openRouterApiKey" class="api-key-input" placeholder="Cole sua chave aqui (sk-or-...)">
+                </div>
+                <div>
+                    Modelo: <input type="text" id="openRouterModelName" value="deepseek/deepseek-chat" class="bg-indigo-500 text-white px-1 rounded-sm text-xs w-40 placeholder-indigo-300" placeholder="ex: deepseek/deepseek-chat">
+                </div>
+                 <div class="text-indigo-200 text-xs">(Use modelos como 'deepseek/deepseek-chat', 'mistralai/mistral-7b-instruct', etc.)</div>
+                 <div class="text-indigo-300 text-xs mt-1">HTTP-Referer (opcional): <input type="text" id="httpReferer" class="bg-indigo-500 text-white px-1 rounded-sm text-xs w-32" placeholder="Seu Site URL"></div>
+                 <div class="text-indigo-300 text-xs">X-Title (opcional): <input type="text" id="xTitle" class="bg-indigo-500 text-white px-1 rounded-sm text-xs w-32" placeholder="Nome do Seu Site"></div>
+            </div>
+        </header>
+
+        <!-- Área de Mensagens -->
+        <div id="chatMessages" class="flex-grow p-6 space-y-4 overflow-y-auto bg-gray-50">
+            <!-- Mensagens aparecerão aqui -->
+        </div>
+
+        <!-- Indicador "IA pensando..." -->
+        <div id="aiThinkingIndicator" class="p-2 text-sm text-gray-500 italic text-center hidden items-center justify-center">
+            <div class="loader mr-2"></div>
+            Assistente IA (OpenRouter) está processando...
+        </div>
+
+        <!-- Área de Entrada de Mensagem -->
+        <footer class="p-4 border-t border-gray-200 bg-white rounded-b-lg">
+            <div class="flex items-center space-x-3 mb-2">
+                <label for="questionType" class="text-sm font-medium text-gray-700">Tipo de Pergunta:</label>
+                <select id="questionType" name="questionType" class="flex-grow p-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                    <option value="livro_didatico">Livro Didático</option>
+                    <option value="sala_de_aula">Questão de Sala de Aula</option>
+                    <option value="curiosidade">Curiosidade/Outro</option>
+                </select>
+            </div>
+            <div class="flex items-center space-x-3">
+                <textarea id="messageInput" rows="2" class="flex-grow p-3 border border-gray-300 rounded-lg focus:ring-indigo-500 focus:border-indigo-500 resize-none" placeholder="Digite sua pergunta aqui..."></textarea>
+                <button id="sendButton" class="bg-indigo-500 hover:bg-indigo-600 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-150 ease-in-out">
+                    Enviar
+                </button>
+            </div>
+        </footer>
+    </div>
+
+    <script type="module">
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const questionTypeSelect = document.getElementById('questionType');
+        const aiThinkingIndicator = document.getElementById('aiThinkingIndicator');
+        const openRouterApiKeyInput = document.getElementById('openRouterApiKey');
+        const openRouterModelNameInput = document.getElementById('openRouterModelName');
+        const httpRefererInput = document.getElementById('httpReferer');
+        const xTitleInput = document.getElementById('xTitle');
+
+
+        let localMessages = []; // Array para armazenar o histórico de mensagens da conversa atual
+
+        function displayMessage(text, sender, type) {
+            const messageElement = document.createElement('div');
+            messageElement.classList.add('mb-3', 'p-3', 'rounded-lg', 'max-w-xl', 'break-words');
+            
+            let senderNameDisplay = '';
+            if (sender === 'user') {
+                messageElement.classList.add('bg-blue-500', 'text-white', 'self-end', 'ml-auto');
+                senderNameDisplay = 'Você';
+            } else { 
+                messageElement.classList.add('bg-gray-200', 'text-gray-800', 'self-start', 'mr-auto');
+                senderNameDisplay = 'Assistente IA (OpenRouter)';
+            }
+            messageElement.innerHTML = `<strong class="font-semibold">${senderNameDisplay}</strong><p>${text.replace(/\n/g, '<br>')}</p>`;
+
+            if (type) {
+                 const typeBadge = document.createElement('span');
+                 typeBadge.classList.add('text-xs', 'px-2', 'py-1', 'rounded-full', 'ml-2', 'opacity-75', 'block', 'mt-1', 'w-fit');
+                 if (sender === 'user') {
+                    typeBadge.classList.add('bg-blue-300', 'text-blue-800');
+                 } else {
+                    typeBadge.classList.add('bg-gray-300', 'text-gray-700');
+                 }
+                 typeBadge.textContent = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                 messageElement.appendChild(typeBadge);
+            }
+
+            chatMessages.appendChild(messageElement);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function renderMessages() {
+            chatMessages.innerHTML = '';
+            localMessages.forEach(msg => {
+                displayMessage(msg.text, msg.sender, msg.type);
+            });
+        }
+
+        // Função para chamar a API do OpenRouter
+        async function getOpenRouterResponse(userPromptText, modelName, apiKey, referer, title) {
+            aiThinkingIndicator.style.display = 'flex';
+            const openRouterApiUrl = "https://openrouter.ai/api/v1/chat/completions";
+
+            // Construindo o prompt do sistema
+            const systemMessageContent = `Você é um assistente educacional. Sua tarefa é ajudar o aluno a entender como resolver a questão sem dar a resposta diretamente. Guie-o através do processo, ajude-o com as partes que ele não entendeu e incentive-o a chegar à resposta. Se a pergunta for de "Livro Didático", tente relacionar com conceitos comuns de livros. Se for "Questão de Sala de Aula", foque na metodologia de resolução. Se for "Curiosidade/Outro", explore o tema de forma didática. Tipo de pergunta do aluno: ${questionTypeSelect.options[questionTypeSelect.selectedIndex].text}.`;
+
+            // Prepara o histórico de mensagens para a API
+            // Inclui a mensagem do sistema e a última mensagem do usuário.
+            // Para um chat mais contextual, você poderia enviar mais mensagens do `localMessages`.
+            const messagesForApi = [
+                { role: "system", content: systemMessageContent },
+                { role: "user", content: userPromptText }
+            ];
+
+            // Adiciona mensagens anteriores do `localMessages` para dar mais contexto à IA,
+            // exceto a última mensagem do usuário que já está em `userPromptText`.
+            // E também não adiciona a saudação inicial.
+            // Limita o histórico para não exceder limites de token (ex: últimas 6 mensagens)
+            const historyLimit = 6;
+            const relevantHistory = localMessages
+                .filter(msg => msg.type !== 'saudacao' && !(msg.sender === 'user' && msg.text === userPromptText))
+                .slice(-historyLimit); // Pega as últimas N mensagens
+
+            relevantHistory.forEach(msg => {
+                messagesForApi.splice(1, 0, { // Insere após a mensagem do sistema
+                    role: msg.sender === 'user' ? 'user' : 'assistant',
+                    content: msg.text
+                });
+            });
+
+
+            try {
+                const headers = {
+                    "Authorization": `Bearer ${apiKey}`,
+                    "Content-Type": "application/json"
+                };
+                if (referer) {
+                    headers["HTTP-Referer"] = referer;
+                }
+                if (title) {
+                    headers["X-Title"] = title;
+                }
+
+                const response = await fetch(openRouterApiUrl, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({
+                        model: modelName,
+                        messages: messagesForApi
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.json(); // OpenRouter geralmente retorna JSON no erro
+                    console.error("Erro da API OpenRouter:", response.status, errorBody);
+                    let errorMsg = `Erro ${response.status} da API OpenRouter.`;
+                    if (errorBody.error && errorBody.error.message) {
+                        errorMsg += ` Mensagem: ${errorBody.error.message}`;
+                    }
+                    if (response.status === 401) {
+                         errorMsg += " Verifique sua API Key.";
+                    }
+                    return errorMsg;
+                }
+
+                const data = await response.json();
+                
+                if (data.choices && data.choices.length > 0 && data.choices[0].message && data.choices[0].message.content) {
+                    return data.choices[0].message.content;
+                } else {
+                    console.warn("Resposta da OpenRouter não tem o formato esperado:", data);
+                    return "Não foi possível obter uma resposta válida da IA (OpenRouter).";
+                }
+
+            } catch (error) {
+                console.error("Erro ao chamar a API do OpenRouter:", error);
+                return `Não foi possível conectar à IA (OpenRouter). Verifique sua conexão e o console. Erro: ${error.message}`;
+            } finally {
+                aiThinkingIndicator.style.display = 'none';
+            }
+        }
+
+        async function sendMessage() {
+            const text = messageInput.value.trim();
+            const questionType = questionTypeSelect.value; // Já coletado no início da função
+            const apiKey = openRouterApiKeyInput.value.trim();
+            const modelName = openRouterModelNameInput.value.trim();
+            const referer = httpRefererInput.value.trim();
+            const title = xTitleInput.value.trim();
+
+            if (text === '') return;
+            if (apiKey === '') {
+                alert("Por favor, insira sua Chave da API do OpenRouter.");
+                openRouterApiKeyInput.focus();
+                return;
+            }
+            if (modelName === '') {
+                alert("Por favor, especifique o nome do modelo OpenRouter.");
+                openRouterModelNameInput.focus();
+                return;
+            }
+
+            localMessages.push({ text, sender: 'user', type: questionType });
+            renderMessages();
+            messageInput.value = '';
+
+            const aiResponseText = await getOpenRouterResponse(text, modelName, apiKey, referer, title);
+
+            localMessages.push({ text: aiResponseText, sender: 'ai', type: 'resposta_ia' });
+            renderMessages();
+        }
+
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        renderMessages();
+        console.log("Chat inicializado, pronto para OpenRouter API.");
+        localMessages.push({text: "Olá! Sou seu assistente educacional. Como posso te ajudar hoje? (Conectado à API OpenRouter)", sender: 'ai', type: 'saudacao'});
+        renderMessages();
+
+    </script>
+</body>
+</html>
